@@ -1,0 +1,530 @@
+<!--    COSC 456/556 Instructor: Dr. Maniccam	    -->
+<!-- 		Assignment 3 Creating Game              -->
+<!--   Title: Shooting several oscillating balls	-->
+<!--   2016.11.21 	Creator: Liu He ( E01632577 )	-->
+
+<html>
+
+<head>
+
+<!-- script files for webgl set up and math operations -->
+<script type="text/javascript" src="webgl-utils.js"></script>
+<script type="text/javascript" src="init-shaders.js"></script>
+<script type="text/javascript" src="math.js"></script>
+
+<!-- vertex shader -->
+<script id="vertex-shader" type="x-shader/x-vertex">
+attribute vec4 aPosition;				//vertex coordinate
+uniform mat4 uMatrix;					//transformation matrix
+
+void main()
+{
+	gl_Position = uMatrix*aPosition;
+
+	//transfer to the standard viewport
+	gl_Position.x = 2.0*gl_Position.x/900.0 - 1.0;
+	gl_Position.y = 2.0*gl_Position.y/600.0 - 1.0;
+}
+
+</script>
+
+<!-- fragment shader -->
+<script id="fragment-shader" type="x-shader/x-fragment">
+precision mediump float;		
+uniform vec4 uColor;
+void main()
+{
+	gl_FragColor = uColor;
+}
+
+</script>
+
+<script>
+	
+//global variables
+var gl;								//webgl context
+var uColor;							//connector to uniform uColor
+var uMatrix;						//connector to uniform uMatrix
+
+/*----------gun related factor---------------*/
+var pipeMod, pipeAngle;			// gun pipe's angle and angle modification
+var shootAngle;					// the angle when player press fire button
+var nbullet;					// the bullet remaining
+var bHint;						// cheat key "H"
+var audio;						//"fire.mp3" gunfire voice
+/*--------------------------------------------*/
+
+/*----------ball related factor---------------*/
+var heightBall1, heightBall2, heightBall3, heightBall4;		// every balls' height
+var signHBall1, signHBall2, signHBall3, signHBall4;			// 
+var speedBall1, speedBall2, speedBall3, speedBall4;			// every balls' height modification
+var disSh2Ball1, disSh2Ball2, disSh2Ball3, disSh2Ball4;		// distance from shooter to balls
+var ball1_shot, ball2_shot, ball3_shot, ball4_shot;			// to show whether balls' get shot
+
+
+/*--------------------------------------------*/
+
+
+//main drawing function
+function main()
+{
+	//set up webgl
+	var canvas = document.getElementById("gl-canvas");
+	gl = WebGLUtils.setupWebGL(canvas);
+
+	//set up shaders
+	var program = initShaders(gl, "vertex-shader", "fragment-shader");
+	gl.useProgram(program);
+
+	//create vertex buffer and bind it
+	var vertexBuffer = gl.createBuffer();
+	gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+
+	//connect vertex buffer to attribute variable aposition
+	var aPosition = gl.getAttribLocation(program, "aPosition");
+	gl.vertexAttribPointer(aPosition, 2, gl.FLOAT, false, 0, 0);
+	gl.enableVertexAttribArray(aPosition);
+
+	//create vertices array
+	var vertices = [];
+	vertices = 
+	[
+		//vertices of square
+		vec2(-1.0, -1.0), vec2(-1.0, 1.0), vec2(1.0, 1.0), vec2(1.0, -1.0)
+	];
+
+	//vertices of disk
+	makeDisk(vertices, 0.2, 100);
+
+	//vertices of shooter's body and limbs
+	vertices.push(
+		vec2(100,155), vec2(100,75),		//body
+		vec2(100,75), vec2(75,35),			//left leg
+		vec2(100,75), vec2(125,50)			//right leg
+		);
+
+	//buffer vertices into vertex buffer
+	gl.bufferData(gl.ARRAY_BUFFER, flatten(vertices), gl.STATIC_DRAW);
+
+	//connect to uniform uMatrix, uColor
+	uMatrix = gl.getUniformLocation(program, "uMatrix");
+	uColor = gl.getUniformLocation(program, "uColor");
+
+	//initial animation factor
+	/*----------gun related factor---------------*/
+	pipeMod = 1.0, pipeAngle = 0, shootAngle = 0.0;
+	nbullet = 10;
+	bHint = false;
+	audio = new Audio('fire.mp3');
+	/*-------------------------------------------*/
+
+	/*----------ball related factor---------------*/
+	ball1_shot = false;
+	disSh2Ball1 = 500;
+	speedBall1 = Math.random()*3 + 1; 
+	heightBall1 = Math.random()*400, signHBall1 = 1.0;
+
+	ball2_shot = false;
+	disSh2Ball2 = 600;
+	speedBall2 = Math.random()*3 + 1;
+	heightBall2 = Math.random()*400, signHBall2 = 1.0;
+
+	ball3_shot = false;
+	disSh2Ball3 = 700;
+	speedBall3 = Math.random()*3 + 1;
+	heightBall3 = Math.random()*400, signHBall3 = 1.0;
+
+	ball4_shot = false;
+	disSh2Ball4 = 800;
+	speedBall4 = Math.random()*3 + 1;
+	heightBall4 = Math.random()*400, signHBall4 = 1.0;
+	/*-------------------------------------------*/
+
+	
+	
+	//set viewport to canvas
+	gl.viewport(0, 0, canvas.width, canvas.height);
+
+	//canvas color is dark grey
+	gl.clearColor(0.2, 0.2, 0.2, 1.0);
+
+	//draw animation
+	draw();
+
+}
+
+function draw()
+{
+	var m1, m2, m3, matrix;		// transfer matrix
+
+	gl.clear(gl.COLOR_BUFFER_BIT);
+
+	/*............Bullet Remaining..............*/
+	for(var i=0; i< nbullet; i++)
+	{
+		m1 = scaling(15, 5, 0);									//rect, width = 30, height = 10
+		m2 = translate(50, 430 + i*15, 0);
+		matrix = multiply(m2, m1);
+		gl.uniformMatrix4fv(uMatrix, false, flatten(matrix));		//send matrix
+		gl.uniform4fv(uColor, flatten(vec4(0.75, 0.75, 0.75, 1.0)));	//send color
+		gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);						//draw rects
+	}
+	/*......................................................*/
+
+
+	/*............Ground.....................................*/
+	m1 = scaling(450, 25, 0);									// rect, width = 900, height = 50
+	m2 = translate(450, 25, 0);
+	matrix = multiply(m2, m1);
+	gl.uniformMatrix4fv(uMatrix, false, flatten(matrix));		//send matrix
+	gl.uniform4fv(uColor, flatten(vec4(0.0, 0.5, 0.0, 1.0)));	//send color
+	gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);						//draw rect
+
+	/*......................................................*/
+
+	/*...........shooter head.....................................................*/
+
+	//if the scaling factor>=300 do constracting
+
+	m1 = scaling(125, 125, 0);			//disk r = 25
+	m2 = translate(100, 180, 0);		//move disk to (150, 150)
+	matrix = multiply(m2, m1);			//multiply matrices
+
+	gl.uniformMatrix4fv(uMatrix, false, flatten(matrix));			//send matrix
+	gl.uniform4fv(uColor, flatten(vec4(1.0, 1.0, 1.0, 1.0)));		//send color
+	gl.drawArrays(gl.TRIANGLE_FAN, 4, 100);							//draw disk
+
+	/*............................................................................*/
+
+	/*...........shooter body.............*/
+
+	matrix = mat4(1.0, 0.0, 0.0, 0.0,         //identity matrix
+                  0.0, 1.0, 0.0, 0.0,
+                  0.0, 0.0, 1.0, 0.0,
+              	  0.0, 0.0, 0.0, 1.0);
+
+	gl.uniformMatrix4fv(uMatrix, false, flatten(matrix));			//send matrix
+	gl.uniform4fv(uColor, flatten(vec4(1.0, 1.0, 1.0, 1.0)));		//send color
+	gl.drawArrays(gl.LINES, 104, 6);								//draw lines
+
+	/*............................................................................*/
+
+	/*........................HINT.............................*/
+	if(bHint)
+	{
+		m1 = multiply(scaling(600, 1, 0), translate(1.0, 1.0, 0.0));		//rect, width = 1200, height = 2	
+		m2 = rotatez(pipeAngle);											//rotate
+		m3 = translate(120, 125, 0);										//translate
+		matrix = multiply(m3, multiply(m2, m1));							//product matrix
+	
+		gl.uniformMatrix4fv(uMatrix, false, flatten(matrix));			//send matrix
+		gl.uniform4fv(uColor, flatten(vec4(1.0 , 0.0, 0.0, 1.0)));		//send colors	
+		gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);							//draw rect
+	}
+	/*.........................................................*/
+
+	/*........Gun body................*/
+
+	m1 = multiply(scaling(30, 5, 0), translate(1.0, 1.0, 0.0));			//rect, wide = 60, height = 10
+	m2 = rotatez(pipeAngle);											//rotate
+	m3 = translate(120, 125, 0);										//translate
+	matrix = multiply(translate(-10, -10 , 0), multiply(m3, multiply(m2, m1)));							//product matrix
+
+	gl.uniformMatrix4fv(uMatrix, false, flatten(matrix));			//send matrix
+	gl.uniform4fv(uColor, flatten(vec4(0.5, 0.5, 0.5, 1.0)));		//send colors	
+	gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);							//draw triangle
+
+	/*........Gun pipe................*/
+
+	m1 = multiply(scaling(40, 2.5, 0), translate(1.0, 1.0, 0.0));		// wide = 80, height = 5
+	m2 = rotatez(pipeAngle);											//rotate
+	m3 = translate(120, 125, 0);										//translate
+	matrix = multiply(m3, multiply(m2, m1));							//product matrix
+
+	gl.uniformMatrix4fv(uMatrix, false, flatten(matrix));				//send matrix
+	gl.uniform4fv(uColor, flatten(vec4(0.8, 0.75, 0.6, 1.0)));			//send colors	
+	gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);								//draw triangle
+
+	/*.........................................................................*/
+
+	/*..........BALL1................*/
+
+	if(!ball1_shot)
+	{
+		heightBall1 = heightBall1 + signHBall1 * speedBall1 ;
+		
+		if (heightBall1 >450 || heightBall1 < 0)
+			signHBall1 = - signHBall1;	
+	
+		m1 = scaling(125, 125, 0);								//disk r = 25
+		m2 = translate(disSh2Ball1 , 125, 0);					//translate to appointed location
+		m3 = translate(0, heightBall1, 0.0);					//do movement	
+		matrix = multiply(m3, multiply(m2, m1));				//product matrix	
+	
+		gl.uniformMatrix4fv(uMatrix, false, flatten(matrix));		//send matrix	
+		gl.uniform4fv(uColor, flatten(vec4(0.8, 0.0, 0.0, 1.0)));	//send color	
+		gl.drawArrays(gl.TRIANGLE_FAN, 4, 100);						//draw ball1
+	}
+	else
+	{
+		if(heightBall1 <= -50 )
+			heightBall1 = -50;
+		else
+		{
+			heightBall1 = heightBall1 - 10;
+		}
+
+		m1 = scaling(125, 125, 0);								
+		m2 = translate(disSh2Ball1 , 125, 0);					//translate to appointed location
+		m3 = translate(0, heightBall1, 0.0);					//do movement	
+		matrix = multiply(m3, multiply(m2, m1));				//product matrix	
+	
+		gl.uniformMatrix4fv(uMatrix, false, flatten(matrix));		//send matrix	
+		gl.uniform4fv(uColor, flatten(vec4(0.8, 0.0, 0.0, 1.0)));	//send color	
+		gl.drawArrays(gl.TRIANGLE_FAN, 4, 100);						//draw ball1
+	}
+	/*.........................................................................*/
+
+	/*.......................BALL2.........................*/
+	if(!ball2_shot)
+	{
+		heightBall2 = heightBall2 + signHBall2 * speedBall2;
+		if (heightBall2 >450 || heightBall2 < 0)
+			signHBall2 = - signHBall2;	
+	
+		m1 = scaling(125, 125, 0);								//disk r = 25
+		m2 = translate(disSh2Ball2 , 125, 0);					//translate to appointed location
+		m3 = translate(0, heightBall2, 0.0);					//do movement	
+		matrix = multiply(m3, multiply(m2, m1));				//product matrix	
+	
+		gl.uniformMatrix4fv(uMatrix, false, flatten(matrix));		//send matrix	
+		gl.uniform4fv(uColor, flatten(vec4(0.0, 0.8, 0.0, 1.0)));	//send color	
+		gl.drawArrays(gl.TRIANGLE_FAN, 4, 100);						//draw ball2
+	}
+	else
+	{
+		if(heightBall2 <= -50 )
+			heightBall2 = -50;
+		else
+		{
+			heightBall2 = heightBall2 - 10;
+		}
+
+		m1 = scaling(125, 125, 0);								//disk r = 25
+		m2 = translate(disSh2Ball2 , 125, 0);					//translate to appointed location
+		m3 = translate(0, heightBall2, 0.0);					//do movement	
+		matrix = multiply(m3, multiply(m2, m1));				//product matrix	
+	
+		gl.uniformMatrix4fv(uMatrix, false, flatten(matrix));		//send matrix	
+		gl.uniform4fv(uColor, flatten(vec4(0.0, 0.8, 0.0, 1.0)));	//send color	
+		gl.drawArrays(gl.TRIANGLE_FAN, 4, 100);						//draw ball2
+	}
+	/*.........................................................................*/
+
+	/*.......................BALL3.........................*/
+	if(!ball3_shot)
+	{
+		heightBall3 = heightBall3 + signHBall3 * speedBall3;
+		if (heightBall3 >450 || heightBall3 < 0)
+			signHBall3 = - signHBall3;	
+	
+		m1 = scaling(125, 125, 0);								//disk r = 25
+		m2 = translate(disSh2Ball3 , 125, 0);					//translate to appointed location
+		m3 = translate(0, heightBall3, 0.0);					//do movement	
+		matrix = multiply(m3, multiply(m2, m1));				//product matrix	
+	
+		gl.uniformMatrix4fv(uMatrix, false, flatten(matrix));		//send matrix	
+		gl.uniform4fv(uColor, flatten(vec4(0.0, 0.0, 0.8, 1.0)));	//send color	
+		gl.drawArrays(gl.TRIANGLE_FAN, 4, 100);						//draw ball3
+	}
+	else
+	{
+		if(heightBall3 <= -50 )
+			heightBall3 = -50;
+		else
+		{
+			heightBall3 = heightBall3 - 10;
+		}
+
+		m1 = scaling(125, 125, 0);								//disk r = 25
+		m2 = translate(disSh2Ball3 , 125, 0);					//translate to appointed location
+		m3 = translate(0, heightBall3, 0.0);					//do movement	
+		matrix = multiply(m3, multiply(m2, m1));				//product matrix	
+	
+		gl.uniformMatrix4fv(uMatrix, false, flatten(matrix));		//send matrix	
+		gl.uniform4fv(uColor, flatten(vec4(0.0, 0.0, 0.8, 1.0)));	//send color	
+		gl.drawArrays(gl.TRIANGLE_FAN, 4, 100);						//draw ball3
+	}
+	/*.........................................................................*/
+
+	/*.......................BALL4.........................*/
+	if(!ball4_shot)
+	{
+		heightBall4 = heightBall4 + signHBall4 * speedBall4;
+		if (heightBall4 >450 || heightBall4 < 0)
+			signHBall4 = - signHBall4;	
+	
+		m1 = scaling(125, 125, 0);								//disk r = 25
+		m2 = translate(disSh2Ball4 , 125, 0);					//translate to appointed location
+		m3 = translate(0, heightBall4, 0.0);					//do movement	
+		matrix = multiply(m3, multiply(m2, m1));				//product matrix	
+	
+		gl.uniformMatrix4fv(uMatrix, false, flatten(matrix));		//send matrix	
+		gl.uniform4fv(uColor, flatten(vec4(0.8, 0.8, 0.0, 1.0)));	//send color	
+		gl.drawArrays(gl.TRIANGLE_FAN, 4, 100);						//draw ball4
+	}
+	else
+	{
+		if(heightBall4 <= -50 )
+			heightBall4 = -50;
+		else
+		{
+			heightBall4 = heightBall4 - 10;
+		}
+
+		m1 = scaling(125, 125, 0);								//disk r = 25
+		m2 = translate(disSh2Ball4 , 125, 0);					//translate to appointed location
+		m3 = translate(0, heightBall4, 0.0);					//do movement	
+		matrix = multiply(m3, multiply(m2, m1));				//product matrix	
+	
+		gl.uniformMatrix4fv(uMatrix, false, flatten(matrix));		//send matrix	
+		gl.uniform4fv(uColor, flatten(vec4(0.8, 0.8, 0.0, 1.0)));	//send color	
+		gl.drawArrays(gl.TRIANGLE_FAN, 4, 100);						//draw ball4
+	}
+	/*.........................................................................*/
+
+	requestAnimationFrame(draw);
+}
+
+//functions used to draw disk
+function makeDisk(vertexArray, radius, count)
+{
+	var theta = 2*Math.PI/count;
+
+	for(var i=0; i<count; i++)
+	{
+		var x = radius*Math.cos(i*theta);
+		var y = radius*Math.sin(i*theta);
+		vertexArray.push(vec2(x,y));
+	}
+
+}
+
+//function used to justify whether the balls have been shot
+//input is shot angle, the ball's height, the distance from shooter to balls
+//output is the corresponding boolean value
+function isShot(fire_angle, hBall, disS2B)
+{
+	var flag;
+	var hBullet = disS2B * Math.tan(fire_angle * (Math.PI/180));		// using shot angle the compute the bullet's height
+
+	if (hBullet >= hBall - 35 && hBullet <= hBall + 35 )		// if the bullet's hight is in the range of ball, then the ball has been shot
+	{
+		flag = true;
+	}
+	else falg = false;
+
+	return flag;
+}
+
+</script>
+
+
+</head>
+
+<!-- draw scene -->
+<body onload="main()" >
+
+<!-- canvas for drawing scene -->
+
+<canvas id="gl-canvas" width="900" height="600"></canvas>
+
+<!-- some description text -->
+<p>
+Using Up, Down key to control Gun Pipe's angle;		
+<p>
+<p>
+Click Spacebar to fire. Topleft represent the bullet remaining.
+</p>
+<!-- ===================== -->
+
+<script>
+
+//event listener on key pressing
+window.onkeydown = function()
+{
+	var key = event.keyCode;
+
+	if (key == 32)		//spacebar, fire!!
+	{
+
+		shootAngle = pipeAngle;		// get current shot angle 
+
+		if(nbullet > 0)				// to check if there's still bullets remaining
+		{
+			// using to load fire sound effect
+			if (audio.paused) 
+			{
+    	    	audio.play();
+    		}
+    		else
+    		{
+    	    	audio.currentTime = 0;
+    		}
+
+    		// justify every balls if they've been shot
+			if(!ball1_shot)
+			{
+				ball1_shot = isShot(shootAngle, heightBall1, disSh2Ball1);
+			}
+	
+			if(!ball2_shot)
+			{
+				ball2_shot = isShot(shootAngle, heightBall2, disSh2Ball2);
+			}
+			if(!ball3_shot)
+			{
+				ball3_shot = isShot(shootAngle, heightBall3, disSh2Ball3);
+			}
+			if(!ball4_shot)
+			{
+				ball4_shot = isShot(shootAngle, heightBall4, disSh2Ball4);
+			}
+
+			//bullet remaining decrease
+			nbullet--;
+		}
+	}
+	else if (key == 38)		//up, move gun pipe up
+	{
+		if(pipeAngle >= 45)			// pipe angle upper limit
+			pipeAngle = pipeAngle;
+		else
+		{
+			pipeMod = 5;						//angle increase
+			pipeAngle = pipeAngle + pipeMod;	//rotate angle
+		}
+		
+	}
+	else if (key == 40)		//down, move gun pipe down
+	{
+		if(pipeAngle <= 0)			//pipe angle floor limit
+			pipeAngle = pipeAngle;
+		else
+		{
+			pipeMod = -5;						// angle decrease
+			pipeAngle = pipeAngle + pipeMod;	// rotate angle
+		}
+		
+	}	
+	else if (key == 72)				// key 'H', cheating mode
+	{
+		bHint = !bHint;							
+	}
+	else;
+	
+};
+</script>
+</body>
+
+</html>
