@@ -1,2 +1,12 @@
 # WebGL---Game
-A shooting game based on WebGL
+
+## Intro
+
+This is a interactive 2D shooting game.
+
+Language/Enviroments:
+  - JavaScript
+  - WebGL
+  
+## QuickStart
+Open `game.html`
